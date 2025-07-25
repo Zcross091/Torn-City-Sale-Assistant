@@ -4,10 +4,10 @@ import discord
 import requests
 from discord.ext import commands
 from discord import app_commands
-from dotenv import load_dotenv
+
 
 # Load environment variables
-load_dotenv()
+
 TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
 
 # Set intents
