@@ -1,4 +1,3 @@
-
 import os
 import json
 import discord
@@ -10,11 +9,15 @@ from dotenv import load_dotenv
 from dotenv import load_dotenv
 import os
 
-TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
+from discord.ext import commands
 
 intents = discord.Intents.default()
+intents.message_content = True  # ✅ important for commands to work
+
 bot = commands.Bot(command_prefix="!", intents=intents)
-tree = bot.tree
+
+TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
+
 
 API_KEY_FILE = "user_keys.json"
 if os.path.exists(API_KEY_FILE):
