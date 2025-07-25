@@ -6,19 +6,19 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from dotenv import load_dotenv
-import os
-
-from discord.ext import commands
-
-intents = discord.Intents.default()
-intents.message_content = True  # ✅ important for commands to work
-
-bot = commands.Bot(command_prefix="!", intents=intents)
-
+# Load environment variables
+load_dotenv()
 TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
 
+# Set intents
+intents = discord.Intents.default()
+intents.message_content = True  # For prefix commands if needed in future
 
+# Define bot and app_commands tree
+bot = commands.Bot(command_prefix="!", intents=intents)
+tree = bot.tree  # ✅ This is what was missing
+
+# Load or initialize API key storage
 API_KEY_FILE = "user_keys.json"
 if os.path.exists(API_KEY_FILE):
     with open(API_KEY_FILE, 'r') as f:
@@ -29,6 +29,8 @@ else:
 def save_keys():
     with open(API_KEY_FILE, 'w') as f:
         json.dump(user_keys, f)
+
+# ----------------- Slash Commands ------------------
 
 @tree.command(name="start", description="Start using the Torn City bot")
 async def start_command(interaction: discord.Interaction):
@@ -90,9 +92,13 @@ async def items(interaction: discord.Interaction):
 
     await interaction.response.send_message(msg, ephemeral=True)
 
+# ------------------ On Ready ------------------
+
 @bot.event
 async def on_ready():
-    print(f"Bot is online as {bot.user}")
     await tree.sync()
+    print(f"✅ Bot is online as {bot.user}")
+
+# ------------------ Run Bot ------------------
 
 bot.run(TOKEN)
