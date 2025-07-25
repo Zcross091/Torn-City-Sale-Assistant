@@ -64,7 +64,7 @@ async def profile(interaction: discord.Interaction):
     status = response.get("status", {}).get("description", "Unknown")
     await interaction.response.send_message(f"**{name}** | Level {level}\nStatus: {status}", ephemeral=True)
 
-@tree.command(name="items", description="View your Torn inventory items")
+@tree.command(name="start", description="Start using the Torn City bot")
 async def items(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
     if user_id not in user_keys:
@@ -96,9 +96,8 @@ async def items(interaction: discord.Interaction):
 
 @bot.event
 async def on_ready():
-    GUILD_ID = 1352710920660582471 # <- Replace this number
-    await tree.sync(guild=discord.Object(id=GUILD_ID))
-    print(f"✅ Bot is online as {bot.user}")
+    print(f"Bot is online as {bot.user}")
+    await tree.sync()  # This syncs all global commands
 
 
 # ------------------ Run Bot ------------------
