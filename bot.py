@@ -96,7 +96,7 @@ async def items(interaction: discord.Interaction):
 
 @bot.event
 async def on_ready():
-    GUILD_ID = YOUR_SERVER_ID  # <- Replace this number
+    GUILD_ID = 1352710920660582471 # <- Replace this number
     await tree.sync(guild=discord.Object(id=GUILD_ID))
     print(f"✅ Bot is online as {bot.user}")
 
