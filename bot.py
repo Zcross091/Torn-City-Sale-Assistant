@@ -2,8 +2,8 @@ import os
 import json
 import discord
 import requests
-from discord import app_commands
 from discord.ext import commands
+from discord import app_commands
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -12,13 +12,13 @@ TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
 
 # Set intents
 intents = discord.Intents.default()
-intents.message_content = True  # For prefix commands if needed in future
+intents.message_content = True  # For prefix commands if needed later
 
-# Define bot and app_commands tree
+# Define bot and command tree
 bot = commands.Bot(command_prefix="!", intents=intents)
-tree = bot.tree  # ✅ This is what was missing
+tree = bot.tree  # Correctly attached
 
-# Load or initialize API key storage
+# Load or initialize user API keys
 API_KEY_FILE = "user_keys.json"
 if os.path.exists(API_KEY_FILE):
     with open(API_KEY_FILE, 'r') as f:
@@ -32,11 +32,11 @@ def save_keys():
 
 # ----------------- Slash Commands ------------------
 
-@tree.command(name="start", description="Start using the Torn City bot")
+@bot.tree.command(name="start", description="Start using the Torn City bot")
 async def start_command(interaction: discord.Interaction):
-    await interaction.response.send_message("Welcome! Please DM me your Torn API key using `/setkey`.", ephemeral=True)
+    await interaction.response.send_message("👋 Welcome! Please DM me your Torn API key using `/setkey`.", ephemeral=True)
 
-@tree.command(name="setkey", description="DM your Torn City API key to the bot")
+@bot.tree.command(name="setkey", description="DM your Torn City API key to the bot")
 @app_commands.describe(key="Your limited Torn City API key")
 async def setkey(interaction: discord.Interaction, key: str):
     user_id = str(interaction.user.id)
@@ -44,7 +44,7 @@ async def setkey(interaction: discord.Interaction, key: str):
     save_keys()
     await interaction.response.send_message("✅ API key saved successfully!", ephemeral=True)
 
-@tree.command(name="profile", description="View your Torn City profile")
+@bot.tree.command(name="profile", description="View your Torn City profile")
 async def profile(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
     if user_id not in user_keys:
@@ -64,7 +64,7 @@ async def profile(interaction: discord.Interaction):
     status = response.get("status", {}).get("description", "Unknown")
     await interaction.response.send_message(f"**{name}** | Level {level}\nStatus: {status}", ephemeral=True)
 
-@tree.command(name="start", description="Start using the Torn City bot")
+@bot.tree.command(name="items", description="View your Torn inventory items")
 async def items(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
     if user_id not in user_keys:
@@ -81,10 +81,10 @@ async def items(interaction: discord.Interaction):
 
     inventory = response.get("inventory", {})
     if not inventory:
-        await interaction.response.send_message("Your inventory is empty.", ephemeral=True)
+        await interaction.response.send_message("📭 Your inventory is empty.", ephemeral=True)
         return
 
-    msg = "**Your Inventory:**\n"
+    msg = "**🎒 Your Inventory:**\n"
     for item_id, item in inventory.items():
         name = item.get("name")
         quantity = item.get("quantity")
@@ -96,9 +96,8 @@ async def items(interaction: discord.Interaction):
 
 @bot.event
 async def on_ready():
-    print(f"Bot is online as {bot.user}")
-    await tree.sync()  # This syncs all global commands
-
+    print(f"✅ Bot is online as {bot.user}")
+    await bot.tree.sync()
 
 # ------------------ Run Bot ------------------
 
