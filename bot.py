@@ -10,13 +10,7 @@ from dotenv import load_dotenv
 from dotenv import load_dotenv
 import os
 
-load_dotenv()
-
-TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-
-# Load bot token from .env
-load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
+TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
