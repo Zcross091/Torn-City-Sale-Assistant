@@ -96,8 +96,11 @@ async def items(interaction: discord.Interaction):
 
 @bot.event
 async def on_ready():
-    await tree.sync()
+    # Optionally restrict to a test server first
+    GUILD_ID = discord.Object(id=YOUR_SERVER_ID)  # replace with your server ID
+    await tree.sync(guild=GUILD_ID)  # faster, per-guild command registration
     print(f"✅ Bot is online as {bot.user}")
+
 
 # ------------------ Run Bot ------------------
 
