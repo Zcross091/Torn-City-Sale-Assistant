@@ -103,3 +103,16 @@ async def on_ready():
 
 if __name__ == "__main__":
     bot.run(TOKEN)
+
+import threading
+import http.server
+import socketserver
+
+def keep_alive():
+    port = int(os.environ.get("PORT", 8080))
+    handler = http.server.SimpleHTTPRequestHandler
+    with socketserver.TCPServer(("", port), handler) as httpd:
+        print(f"⚙️ Dummy server running on port {port}")
+        httpd.serve_forever()
+
+threading.Thread(target=keep_alive).start()
