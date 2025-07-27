@@ -88,6 +88,27 @@ async def setkey(interaction: discord.Interaction, key: str):
     save_keys()
     await interaction.response.send_message("✅ API key saved successfully!", ephemeral=True)
 
+@bot.tree.command(name="changekey", description="Update your Torn API key")
+@app_commands.describe(new_key="Your new Torn City API key")
+async def changekey(interaction: discord.Interaction, new_key: str):
+    user_id = str(interaction.user.id)
+    if user_id not in accepted_users:
+        await interaction.response.send_message("❌ You must accept the Terms of Service. Use `/tos`.", ephemeral=True)
+        return
+    user_keys[user_id] = new_key
+    save_keys()
+    await interaction.response.send_message("🔁 Your API key has been updated successfully.", ephemeral=True)
+
+@bot.tree.command(name="removekey", description="Remove your saved Torn API key")
+async def removekey(interaction: discord.Interaction):
+    user_id = str(interaction.user.id)
+    if user_id in user_keys:
+        del user_keys[user_id]
+        save_keys()
+        await interaction.response.send_message("🗑️ Your API key has been deleted.", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ You have no saved API key.", ephemeral=True)
+
 @bot.tree.command(name="profile", description="View your Torn City profile")
 async def profile(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
@@ -111,126 +132,13 @@ async def profile(interaction: discord.Interaction):
     status = response.get("status", {}).get("description", "Unknown")
     await interaction.response.send_message(f"**{name}** | Level {level}\nStatus: {status}", ephemeral=True)
 
-@bot.tree.command(name="items", description="View your Torn inventory items")
-async def items(interaction: discord.Interaction):
-    user_id = str(interaction.user.id)
-    if user_id not in accepted_users:
-        await interaction.response.send_message("❌ You must accept the Terms of Service. Use `/tos`.", ephemeral=True)
-        return
-    if user_id not in user_keys:
-        await interaction.response.send_message("❌ Set your API key first with `/setkey`.", ephemeral=True)
-        return
-
-    key = user_keys[user_id]
-    url = f"https://api.torn.com/user/?selections=inventory&key={key}"
-    response = requests.get(url).json()
-
-    if "error" in response:
-        await interaction.response.send_message("⚠️ Error fetching inventory.", ephemeral=True)
-        return
-
-    inventory = response.get("inventory", {})
-    if not inventory:
-        await interaction.response.send_message("📭 Your inventory is empty.", ephemeral=True)
-        return
-
-    msg = "**\U0001F392 Your Inventory:**\n"
-    for item_id, item in inventory.items():
-        name = item.get("name")
-        quantity = item.get("quantity")
-        msg += f"- {name}: {quantity}\n"
-
-    await interaction.response.send_message(msg, ephemeral=True)
-
-@bot.tree.command(name="advise", description="Suggest profitable items from the market")
-async def advise(interaction: discord.Interaction):
-    user_id = str(interaction.user.id)
-    if user_id not in accepted_users:
-        await interaction.response.send_message("❌ You must accept the Terms of Service. Use `/tos`.", ephemeral=True)
-        return
-    if user_id not in user_keys:
-        await interaction.response.send_message("❌ Set your API key first with `/setkey`.", ephemeral=True)
-        return
-
-    key = user_keys[user_id]
-    url = f"https://api.torn.com/market/?selections=items&key={key}"
-    market_data = requests.get(url).json()
-
-    if "error" in market_data:
-        await interaction.response.send_message("⚠️ Couldn't fetch market data. Check your API permissions.", ephemeral=True)
-        return
-
-    profitable = []
-    for item_id, item in market_data.get("items", {}).items():
-        market_price = item.get("market_price")
-        item_value = item.get("item", {}).get("value")
-        name = item.get("item", {}).get("name")
-
-        if market_price and item_value and market_price < item_value:
-            profit = item_value - market_price
-            profitable.append((name, market_price, item_value, profit))
-
-    if not profitable:
-        await interaction.response.send_message("📉 No profitable items found right now.", ephemeral=True)
-        return
-
-    profitable.sort(key=lambda x: x[3], reverse=True)
-    top = profitable[:5]
-
-    msg = "**\U0001F4B8 Top Profitable Items:**\n"
-    for name, market, value, profit in top:
-        msg += f"- **{name}**: Buy for ${market:,}, Value ${value:,} → Profit: ${profit:,}\n"
-
-    await interaction.response.send_message(msg, ephemeral=True)
-
-@bot.tree.command(name="advise_stock", description="Suggest stocks that might be worth buying (based on price drop)")
-async def advise_stock(interaction: discord.Interaction):
-    user_id = str(interaction.user.id)
-    if user_id not in accepted_users:
-        await interaction.response.send_message("❌ You must accept the Terms of Service. Use `/tos`.", ephemeral=True)
-        return
-    if user_id not in user_keys:
-        await interaction.response.send_message("❌ Set your API key first with `/setkey`.", ephemeral=True)
-        return
-
-    key = user_keys[user_id]
-    url = f"https://api.torn.com/torn/?selections=stocks&key={key}"
-    data = requests.get(url).json()
-
-    if "error" in data:
-        await interaction.response.send_message("⚠️ Couldn't fetch stock data. Check your API key permissions.", ephemeral=True)
-        return
-
-    suggestions = []
-    for stock_id, stock in data.get("stocks", {}).items():
-        current = stock.get("current_price")
-        high = stock.get("highest_price")
-        name = stock.get("name")
-
-        if current and high and current < (0.85 * high):  # drop of 15%+
-            drop = high - current
-            suggestions.append((name, current, high, drop))
-
-    if not suggestions:
-        await interaction.response.send_message("📉 No undervalued stocks found at the moment.", ephemeral=True)
-        return
-
-    suggestions.sort(key=lambda x: x[3], reverse=True)
-    top = suggestions[:5]
-
-    msg = "**\U0001F4C9 Stocks Currently Cheap:**\n"
-    for name, current, high, drop in top:
-        msg += f"- **{name}**: ${current:,} (was ${high:,}) → Drop: ${drop:,}\n"
-
-    await interaction.response.send_message(msg, ephemeral=True)
-
 # ------------------ On Ready ------------------
 
 @bot.event
 async def on_ready():
     await bot.wait_until_ready()
     await bot.tree.sync()
-    print(f"✅ Bot is online as {bot.user}")\
+    print(f"✅ Bot is online as {bot.user}")
 
 # ------------------ Keep Alive Server ------------------
 
