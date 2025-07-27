@@ -69,7 +69,11 @@ except Exception as e:
 
 ------------------ Events ------------------
 
-@bot.event async def on_ready(): await tree.sync() print(f"✅ Bot is online as {bot.user}")
+@bot.event
+async def on_ready():
+    await bot.wait_until_ready()
+    await tree.sync(force=True)  # <-- Force command overwrite
+    print(f"✅ Bot is online as {bot.user}")
 
 ------------------ Keep Alive Server ------------------
 
