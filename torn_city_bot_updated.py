@@ -1,125 +1,83 @@
-import os
-import json
-import discord
-import requests
-from discord.ext import commands
-from discord import app_commands, ui
-import threading
-import http.server
-import socketserver
+import os import discord import requests from discord.ext import commands, tasks from discord import app_commands, ui import threading import http.server import socketserver
 
-TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
+TOKEN = os.environ.get("DISCORD_BOT_TOKEN") TORN_API_KEY = "etqdem2Fp1VlhfGB"
 
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
-tree = bot.tree
+intents = discord.Intents.default() intents.message_content = True bot = commands.Bot(command_prefix="!", intents=intents) tree = bot.tree
 
-API_KEY_FILE = "user_keys.json"
-if os.path.exists(API_KEY_FILE):
-    with open(API_KEY_FILE, 'r') as f:
-        user_keys = json.load(f)
-else:
-    user_keys = {}
+accepted_users = set() stock_channel_id = None last_prices = {}
 
-def save_keys():
-    with open(API_KEY_FILE, 'w') as f:
-        json.dump(user_keys, f)
+------------------ UI ------------------
 
-ACCEPTED_USERS_FILE = "accepted_users.json"
-if os.path.exists(ACCEPTED_USERS_FILE):
-    with open(ACCEPTED_USERS_FILE, "r") as f:
-        accepted_users = set(json.load(f))
-else:
-    accepted_users = set()
+class ToSView(ui.View): def init(self, user_id): super().init(timeout=60) self.user_id = user_id
 
-def save_accepted_users():
-    with open(ACCEPTED_USERS_FILE, "w") as f:
-        json.dump(list(accepted_users), f)
-
-# ---------------- MODALS ------------------
-
-class APIKeyModal(ui.Modal, title="Enter Your Torn API Key"):
-    api_key = ui.TextInput(label="Your Torn API Key", style=discord.TextStyle.short)
-
-    def __init__(self, user_id):
-        super().__init__()
-        self.user_id = str(user_id)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        user_keys[self.user_id] = self.api_key.value
-        save_keys()
-        await interaction.response.send_message("✅ Your API key has been saved!", ephemeral=True)
-
-class ToSView(ui.View):
-    def __init__(self, user_id):
-        super().__init__(timeout=60)
-        self.user_id = str(user_id)
-
-    @ui.button(label="I AGREE", style=discord.ButtonStyle.success)
-    async def agree(self, interaction: discord.Interaction, button: discord.ui.Button):
-        accepted_users.add(self.user_id)
-        save_accepted_users()
-        await interaction.response.send_modal(APIKeyModal(self.user_id))
-
-# ---------------- SLASH COMMANDS ------------------
-
-@tree.command(name="setkey", description="Agree to Terms and Set Your Torn API Key")
-async def setkey(interaction: discord.Interaction):
-    tos_text = (
-        "**📄 Terms of Service**\n"
-        "- Your Torn API key is used only to fetch your personal game data.\n"
-        "- Your key is stored locally and never shared.\n"
-        "- You are responsible for your own Torn account actions.\n"
-        "- This bot is not affiliated with Torn.com.\n"
-        "- By using this bot, you agree to these terms."
+@ui.button(label="I AGREE", style=discord.ButtonStyle.success)
+async def agree(self, interaction: discord.Interaction, button: discord.ui.Button):
+    accepted_users.add(self.user_id)
+    await interaction.response.send_message(
+        "✅ Terms accepted!\n\n📌 **Instructions:**\n1. Create a channel named `#stock-exchange`.\n2. Go there and use `/stock` to start updates.\n3. Use `/stop` to stop them.",
+        ephemeral=True
     )
-    await interaction.response.send_message(tos_text, ephemeral=True, view=ToSView(interaction.user.id))
 
-# ---------------- EXAMPLE: PROFILE ------------------
-@tree.command(name="profile", description="View your Torn City profile")
-async def profile(interaction: discord.Interaction):
-    user_id = str(interaction.user.id)
-    if user_id not in accepted_users:
-        await interaction.response.send_message("❌ You must accept the Terms of Service using `/setkey`.", ephemeral=True)
-        return
-    if user_id not in user_keys:
-        await interaction.response.send_message("❌ You haven't set your API key yet.", ephemeral=True)
-        return
+------------------ Commands ------------------
 
-    key = user_keys[user_id]
-    url = f"https://api.torn.com/user/?selections=profile&key={key}"
+@tree.command(name="start", description="Start using the bot") async def start(interaction: discord.Interaction): await send_tos(interaction)
+
+@tree.command(name="stock", description="Start live stock updates in this channel") async def stock(interaction: discord.Interaction): global stock_channel_id user_id = interaction.user.id if user_id not in accepted_users: await send_tos(interaction) return
+
+if interaction.channel.name != "stock-exchange":
+    await interaction.response.send_message("❗ Please use this command in the `#stock-exchange` channel.", ephemeral=True)
+    return
+
+stock_channel_id = interaction.channel.id
+stock_watcher.start()
+await interaction.response.send_message("✅ Stock updates activated in this channel!", ephemeral=False)
+
+@tree.command(name="stop", description="Stop stock updates") async def stop(interaction: discord.Interaction): global stock_channel_id stock_channel_id = None if stock_watcher.is_running(): stock_watcher.stop() await interaction.response.send_message("🛑 Stock updates have been stopped.", ephemeral=True)
+
+@tree.command(name="invite", description="Invite the bot to your server") async def invite(interaction: discord.Interaction): link = f"https://discord.com/oauth2/authorize?client_id={bot.user.id}&scope=bot+applications.commands&permissions=534723950656" await interaction.response.send_message(f"🤖 Click here to invite this bot to your server", ephemeral=True)
+
+------------------ ToS ------------------
+
+async def send_tos(interaction: discord.Interaction): tos_text = ( "📄 Terms of Service\n" "- This bot uses a shared Torn API key to fetch public stock data.\n" "- No personal Torn API keys are collected.\n" "- You are responsible for how this bot is used on your server.\n" "- The bot is not affiliated with Torn.com." ) await interaction.response.send_message(tos_text, ephemeral=True, view=ToSView(interaction.user.id))
+
+------------------ Stock Tracker ------------------
+
+@tasks.loop(seconds=30) async def stock_watcher(): global last_prices if not stock_channel_id: return
+
+url = f"https://api.torn.com/torn/?selections=stocks&key={TORN_API_KEY}"
+try:
     response = requests.get(url).json()
+    changes = []
+    for stock_id, stock in response.get("stocks", {}).items():
+        name = stock.get("name")
+        price = stock.get("current_price")
+        if not name or price is None:
+            continue
+        prev = last_prices.get(stock_id)
+        if prev is not None and abs(price - prev) >= 0.0001:
+            emoji = "📈" if price > prev else "📉"
+            change = price - prev
+            changes.append(f"{emoji} **{name}**: ${prev:,} → ${price:,} ({change:+.4f})")
+        last_prices[stock_id] = price
 
-    if "error" in response:
-        await interaction.response.send_message("⚠️ Error fetching profile. Check your API key.", ephemeral=True)
-        return
+    if changes:
+        channel = bot.get_channel(stock_channel_id)
+        if channel:
+            await channel.send("**📊 Stock Market Update:**\n" + "\n".join(changes))
+except Exception as e:
+    print(f"Stock fetch failed: {e}")
 
-    name = response.get("name")
-    level = response.get("level")
-    status = response.get("status", {}).get("description", "Unknown")
-    await interaction.response.send_message(f"**{name}** | Level {level}\nStatus: {status}", ephemeral=True)
+------------------ Events ------------------
 
-# ---------------- READY EVENT ------------------
+@bot.event async def on_ready(): await tree.sync() print(f"✅ Bot is online as {bot.user}")
 
-@bot.event
-async def on_ready():
-    await bot.wait_until_ready()
-    await tree.sync()
-    print(f"✅ Bot is online as {bot.user}")
+------------------ Keep Alive Server ------------------
 
-# ---------------- KEEP ALIVE ------------------
-
-def keep_alive():
-    port = int(os.environ.get("PORT", 10000))
-    handler = http.server.SimpleHTTPRequestHandler
-    with socketserver.TCPServer(("", port), handler) as httpd:
-        print(f"⚙️ Dummy server running on port {port}")
-        httpd.serve_forever()
+def keep_alive(): port = int(os.environ.get("PORT", 10000)) handler = http.server.SimpleHTTPRequestHandler with socketserver.TCPServer(("", port), handler) as httpd: print(f"⚙️ Dummy server running on port {port}") httpd.serve_forever()
 
 threading.Thread(target=keep_alive).start()
 
-# ---------------- MAIN ------------------
+------------------ Main ------------------
 
-if __name__ == "__main__":
-    bot.run(TOKEN)
+if name == "main": bot.run(TOKEN)
+
