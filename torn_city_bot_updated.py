@@ -1,4 +1,3 @@
-
 import os
 import json
 import discord
@@ -32,16 +31,59 @@ def save_keys():
     with open(API_KEY_FILE, 'w') as f:
         json.dump(user_keys, f)
 
+# Track users who accepted Terms of Service
+ACCEPTED_USERS_FILE = "accepted_users.json"
+if os.path.exists(ACCEPTED_USERS_FILE):
+    with open(ACCEPTED_USERS_FILE, "r") as f:
+        accepted_users = set(json.load(f))
+else:
+    accepted_users = set()
+
+def save_accepted_users():
+    with open(ACCEPTED_USERS_FILE, "w") as f:
+        json.dump(list(accepted_users), f)
+
 # ------------- Slash Commands -------------
+
+@bot.tree.command(name="tos", description="View the bot's Terms of Service")
+async def tos(interaction: discord.Interaction):
+    tos_text = (
+        "**\U0001F4DC Terms of Service**\n"
+        "- Your Torn API key is used only to fetch your personal game data.\n"
+        "- Your key is stored locally and never shared.\n"
+        "- You are responsible for your own Torn account actions.\n"
+        "- This bot is not affiliated with Torn.com.\n"
+        "- By using this bot, you agree to these terms.\n\n"
+        "Use `/accept_tos` to continue."
+    )
+    await interaction.response.send_message(tos_text, ephemeral=True)
+
+@bot.tree.command(name="accept_tos", description="Accept the Terms of Service to use the bot")
+async def accept_tos(interaction: discord.Interaction):
+    user_id = str(interaction.user.id)
+    if user_id in accepted_users:
+        await interaction.response.send_message("✅ You’ve already accepted the Terms of Service.", ephemeral=True)
+        return
+
+    accepted_users.add(user_id)
+    save_accepted_users()
+    await interaction.response.send_message("✅ ToS accepted! You can now use the bot's features.", ephemeral=True)
 
 @bot.tree.command(name="start", description="Start using the Torn City bot")
 async def start_command(interaction: discord.Interaction):
-    await interaction.response.send_message("👋 Welcome! Please DM me your Torn API key using `/setkey`.", ephemeral=True)
+    user_id = str(interaction.user.id)
+    if user_id not in accepted_users:
+        await interaction.response.send_message("❌ You must accept the Terms of Service. Use `/tos`.", ephemeral=True)
+        return
+    await interaction.response.send_message("\U0001F44B Welcome! Please DM me your Torn API key using `/setkey`.", ephemeral=True)
 
 @bot.tree.command(name="setkey", description="DM your Torn City API key to the bot")
 @app_commands.describe(key="Your limited Torn City API key")
 async def setkey(interaction: discord.Interaction, key: str):
     user_id = str(interaction.user.id)
+    if user_id not in accepted_users:
+        await interaction.response.send_message("❌ You must accept the Terms of Service. Use `/tos`.", ephemeral=True)
+        return
     user_keys[user_id] = key
     save_keys()
     await interaction.response.send_message("✅ API key saved successfully!", ephemeral=True)
@@ -49,6 +91,9 @@ async def setkey(interaction: discord.Interaction, key: str):
 @bot.tree.command(name="profile", description="View your Torn City profile")
 async def profile(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
+    if user_id not in accepted_users:
+        await interaction.response.send_message("❌ You must accept the Terms of Service. Use `/tos`.", ephemeral=True)
+        return
     if user_id not in user_keys:
         await interaction.response.send_message("❌ You haven't set your API key yet. Use `/setkey` first.", ephemeral=True)
         return
@@ -69,6 +114,9 @@ async def profile(interaction: discord.Interaction):
 @bot.tree.command(name="items", description="View your Torn inventory items")
 async def items(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
+    if user_id not in accepted_users:
+        await interaction.response.send_message("❌ You must accept the Terms of Service. Use `/tos`.", ephemeral=True)
+        return
     if user_id not in user_keys:
         await interaction.response.send_message("❌ Set your API key first with `/setkey`.", ephemeral=True)
         return
@@ -86,7 +134,7 @@ async def items(interaction: discord.Interaction):
         await interaction.response.send_message("📭 Your inventory is empty.", ephemeral=True)
         return
 
-    msg = "**🎒 Your Inventory:**\n"
+    msg = "**\U0001F392 Your Inventory:**\n"
     for item_id, item in inventory.items():
         name = item.get("name")
         quantity = item.get("quantity")
@@ -97,6 +145,9 @@ async def items(interaction: discord.Interaction):
 @bot.tree.command(name="advise", description="Suggest profitable items from the market")
 async def advise(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
+    if user_id not in accepted_users:
+        await interaction.response.send_message("❌ You must accept the Terms of Service. Use `/tos`.", ephemeral=True)
+        return
     if user_id not in user_keys:
         await interaction.response.send_message("❌ Set your API key first with `/setkey`.", ephemeral=True)
         return
@@ -126,7 +177,7 @@ async def advise(interaction: discord.Interaction):
     profitable.sort(key=lambda x: x[3], reverse=True)
     top = profitable[:5]
 
-    msg = "**💸 Top Profitable Items:**\n"
+    msg = "**\U0001F4B8 Top Profitable Items:**\n"
     for name, market, value, profit in top:
         msg += f"- **{name}**: Buy for ${market:,}, Value ${value:,} → Profit: ${profit:,}\n"
 
@@ -135,6 +186,9 @@ async def advise(interaction: discord.Interaction):
 @bot.tree.command(name="advise_stock", description="Suggest stocks that might be worth buying (based on price drop)")
 async def advise_stock(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
+    if user_id not in accepted_users:
+        await interaction.response.send_message("❌ You must accept the Terms of Service. Use `/tos`.", ephemeral=True)
+        return
     if user_id not in user_keys:
         await interaction.response.send_message("❌ Set your API key first with `/setkey`.", ephemeral=True)
         return
@@ -164,7 +218,7 @@ async def advise_stock(interaction: discord.Interaction):
     suggestions.sort(key=lambda x: x[3], reverse=True)
     top = suggestions[:5]
 
-    msg = "**📉 Stocks Currently Cheap:**\n"
+    msg = "**\U0001F4C9 Stocks Currently Cheap:**\n"
     for name, current, high, drop in top:
         msg += f"- **{name}**: ${current:,} (was ${high:,}) → Drop: ${drop:,}\n"
 
@@ -192,4 +246,3 @@ threading.Thread(target=keep_alive).start()
 
 if __name__ == "__main__":
     bot.run(TOKEN)
-
