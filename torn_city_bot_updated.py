@@ -180,7 +180,7 @@ async def on_ready():
 # ------------------ Keep Alive Server ------------------
 
 def keep_alive():
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT", 10000))
     handler = http.server.SimpleHTTPRequestHandler
     with socketserver.TCPServer(("", port), handler) as httpd:
         print(f"⚙️ Dummy server running on port {port}")
