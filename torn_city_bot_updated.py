@@ -69,7 +69,19 @@ except Exception as e:
 
 ------------------ Events ------------------
 
-@bot.event async def on_ready(): await tree.sync() print(f"✅ Bot is online as {bot.user}")
+@bot.event
+async def on_ready():
+    await bot.wait_until_ready()
+
+    # Clear all global slash commands
+    print("🧹 Clearing old commands...")
+    await tree.sync()  # Make sure we're synced before removing
+    for cmd in tree.get_commands():
+        await tree.remove_command(cmd.name)
+
+    # Resync the new set of commands
+    await tree.sync()
+    print(f"✅ Bot is online as {bot.user} with updated commands")
 
 ------------------ Keep Alive Server ------------------
 
