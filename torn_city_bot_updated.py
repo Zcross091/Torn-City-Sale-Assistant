@@ -228,8 +228,9 @@ async def advise_stock(interaction: discord.Interaction):
 
 @bot.event
 async def on_ready():
-    print(f"✅ Bot is online as {bot.user}")
+    await bot.wait_until_ready()
     await bot.tree.sync()
+    print(f"✅ Bot is online as {bot.user}")\
 
 # ------------------ Keep Alive Server ------------------
 
