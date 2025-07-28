@@ -7,6 +7,7 @@ import threading
 import http.server
 import socketserver
 import asyncio
+import time
 
 TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
 TORN_API_KEY = "etqdem2Fp1VlhfGB"
@@ -17,7 +18,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
 accepted_users = set()
-last_prices = {}  # stock_id -> price
+last_prices = {}  # guild_id -> {stock_id: price}
 stock_channels = {}  # guild_id -> channel_id
 stock_tasks = {}  # guild_id -> asyncio.Task
 stock_messages = {}  # guild_id -> {stock_id: message_id}
@@ -32,8 +33,12 @@ class ToSView(ui.View):
     @ui.button(label="I AGREE", style=discord.ButtonStyle.success)
     async def agree(self, interaction: discord.Interaction, button: discord.ui.Button):
         accepted_users.add(self.user_id)
-        await interaction.response.send_message("✅ Terms accepted!", ephemeral=True)
+        await interaction.response.send_message(
+            "✅ Terms accepted!",
+            ephemeral=True
+        )
 
+        # Setup Wizard
         intro = (
             "👋 **Thanks for using Torn Assistant!**\n"
             "This bot has two key features:\n"
@@ -116,6 +121,7 @@ async def stock_watcher(guild_id):
                 continue
 
             messages = stock_messages.setdefault(guild_id, {})
+            prices = last_prices.setdefault(guild_id, {})  # per-server stock prices
 
             for stock_id, stock in response.get("stocks", {}).items():
                 name = stock.get("name")
@@ -123,14 +129,14 @@ async def stock_watcher(guild_id):
                 if not name or price is None:
                     continue
 
-                prev = last_prices.get(stock_id)
+                prev = prices.get(stock_id)
                 content = f"**{name}**: ${price:,}"
                 if prev is not None and abs(price - prev) >= 0.0001:
                     emoji = "📈" if price > prev else "📉"
                     change = price - prev
                     content += f" ({emoji} {change:+.4f})"
 
-                last_prices[stock_id] = price
+                prices[stock_id] = price
 
                 if stock_id in messages:
                     try:
@@ -143,7 +149,8 @@ async def stock_watcher(guild_id):
                     msg = await channel.send(content)
                     messages[stock_id] = msg.id
 
-            await asyncio.sleep(30)
+            # Align sleep to every 30 seconds interval
+            await asyncio.sleep(max(0, 30 - (time.time() % 30)))
 
     except asyncio.CancelledError:
         print(f"❌ Cancelled stock watcher for guild {guild_id}")
