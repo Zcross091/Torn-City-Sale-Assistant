@@ -217,18 +217,3 @@ threading.Thread(target=keep_alive).start()
 
 if __name__ == "__main__":
     bot.run(TOKEN)
-
-
-Done! ✅
-
-Your bot now:
-
-Makes a single Torn API call every 30 seconds.
-
-Updates all active guilds simultaneously using the latest data.
-
-Displays 📈 or 📉 indicators for each stock based on the previous value per guild, ensuring clarity across servers.
-
-
-Let me know if you want to add cooldowns, filters (e.g. only top movers), or memory-saving features next.
-
