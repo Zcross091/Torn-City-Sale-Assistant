@@ -1,10 +1,12 @@
-import os import discord
- import requests from discord.ext 
+import os 
+import discord
+import requests from discord.ext 
 import commands, tasks from discord 
 import app_commands, ui 
 import threading 
 import http.server 
-import socketserver import asyncio
+import socketserver 
+import asyncio
 
 TOKEN = os.environ.get("DISCORD_BOT_TOKEN") TORN_API_KEY = "etqdem2Fp1VlhfGB"
 
