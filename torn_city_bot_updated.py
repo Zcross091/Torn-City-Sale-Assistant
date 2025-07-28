@@ -118,6 +118,50 @@ async def stock_watcher():
     except Exception as e:
         print(f"❌ Stock fetch failed: {e}")
 
+@tree.command(name="travel", description="Find travel-based profit opportunities")
+async def travel(interaction: discord.Interaction):
+    if interaction.user.id not in accepted_users:
+        await send_tos(interaction)
+        return
+
+    try:
+        url = f"https://api.torn.com/torn/?selections=travel&key={TORN_API_KEY}"
+        response = requests.get(url).json()
+
+        if "error" in response:
+            await interaction.response.send_message("❌ Failed to fetch data from Torn API.", ephemeral=True)
+            return
+
+        travel_items = response.get("travel", {}).get("items", {})
+        profitable = []
+
+        for item_id, item in travel_items.items():
+            name = item.get("name")
+            cost = item.get("cost")
+            market_value = item.get("market_value")
+            country = item.get("location")
+
+            if name and cost and market_value and market_value > cost:
+                profit = market_value - cost
+                profitable.append((profit, name, cost, market_value, country))
+
+        if not profitable:
+            await interaction.response.send_message("📉 No profitable travel items found right now.", ephemeral=True)
+            return
+
+        profitable.sort(reverse=True)
+        top = profitable[:5]
+        msg = "**🧳 Travel Profit Opportunities:**\n"
+
+        for profit, name, cost, value, location in top:
+            msg += f"- **{name}** from {location}: Buy for ${cost:,}, Sells for ${value:,} → Profit: ${profit:,}\n"
+
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    except Exception as e:
+        await interaction.response.send_message(f"⚠️ Error checking travel items: {e}", ephemeral=True)
+
+
 # ------------------ Events ------------------
 
 @bot.event
