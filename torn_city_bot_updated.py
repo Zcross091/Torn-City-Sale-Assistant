@@ -8,7 +8,7 @@ import http.server
 import socketserver
 
 TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
-TORN_API_KEY = "etqdem2Fp1VlhfGB"
+TORN_API_KEY = "fcZtiOzWSKSJQNmy"
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -59,7 +59,6 @@ async def stock(interaction: discord.Interaction):
     await interaction.response.send_message("✅ Stock updates activated in this channel!", ephemeral=False)
 
 @tree.command(name="stop", description="Stop stock updates")
-@app_commands.checks.has_permissions(administrator=True)
 async def stop(interaction: discord.Interaction):
     global stock_channel_id
     stock_channel_id = None
@@ -71,44 +70,6 @@ async def stop(interaction: discord.Interaction):
 async def invite(interaction: discord.Interaction):
     link = f"https://discord.com/oauth2/authorize?client_id={bot.user.id}&scope=bot+applications.commands&permissions=534723950656"
     await interaction.response.send_message(f"🤖 [Click here to invite this bot to your server]({link})", ephemeral=True)
-
-@tree.command(name="travel", description="Find profitable travel trades")
-async def travel(interaction: discord.Interaction):
-    await interaction.response.defer(thinking=True, ephemeral=True)
-
-    try:
-        items_data = requests.get(f"https://api.torn.com/torn/?selections=items&key={TORN_API_KEY}").json()["items"]
-        market_data = requests.get(f"https://api.torn.com/market/?selections=items&key={TORN_API_KEY}").json()["items"]
-    except Exception as e:
-        await interaction.followup.send("❌ Failed to fetch data from Torn API.")
-        return
-
-    profitable = []
-    for item_id, market_item in market_data.items():
-        name = market_item.get("item", {}).get("name")
-        market_price = market_item.get("market_price")
-        base_value = market_item.get("item", {}).get("value")
-
-        if not name or not market_price or not base_value:
-            continue
-
-        if base_value < market_price:
-            continue
-
-        profit = market_price - base_value
-        if profit > 5000:
-            profitable.append((name, base_value, market_price, profit))
-
-    if not profitable:
-        await interaction.followup.send("📭 No profitable travel trades found.")
-        return
-
-    profitable.sort(key=lambda x: x[3], reverse=True)
-    msg = "**🧳 Top Travel Profits:**\n"
-    for name, base, market, profit in profitable[:5]:
-        msg += f"- **{name}**: Buy ${base:,}, Sell ${market:,} → Profit: ${profit:,}\n"
-
-    await interaction.followup.send(msg)
 
 # ------------------ ToS ------------------
 
