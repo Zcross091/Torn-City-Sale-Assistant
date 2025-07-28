@@ -8,7 +8,7 @@ import http.server
 import socketserver
 
 TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
-TORN_API_KEY = "fcZtiOzWSKSJQNmy"
+TORN_API_KEY = "etqdem2Fp1VlhfGB"
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -131,7 +131,7 @@ async def travel(interaction: discord.Interaction):
         response = requests.get(url).json()
 
         if "error" in response:
-            await interaction.response.send_message("❌ Failed to fetch data from Torn API.", ephemeral=True)
+            await interaction.response.send_message("❌ The BOT Torn Account Is not LVL 15.", ephemeral=True)
             return
 
         items = response.get("items", {})
