@@ -8,7 +8,7 @@ import http.server
 import socketserver
 
 TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
-TORN_API_KEY = "etqdem2Fp1VlhfGB"
+TORN_API_KEY = "fcZtiOzWSKSJQNmy"
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -16,9 +16,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
 accepted_users = set()
-stock_channel_id = None
 last_prices = {}
-stock_messages = {}  # Tracks stock ID to message ID
+stock_channels = {}  # guild_id -> channel_id
+stock_messages = {}  # guild_id -> {stock_id: message_id}
 
 # ------------------ UI ------------------
 
@@ -43,7 +43,7 @@ async def start(interaction: discord.Interaction):
 
 @tree.command(name="stock", description="Start live stock updates in this channel")
 async def stock(interaction: discord.Interaction):
-    global stock_channel_id
+    guild_id = interaction.guild.id
     user_id = interaction.user.id
 
     if user_id not in accepted_users:
@@ -54,16 +54,18 @@ async def stock(interaction: discord.Interaction):
         await interaction.response.send_message("❗ Please use this command in the `#stock-exchange` channel.", ephemeral=True)
         return
 
-    stock_channel_id = interaction.channel.id
+    stock_channels[guild_id] = interaction.channel.id
+    stock_messages.setdefault(guild_id, {})
     if not stock_watcher.is_running():
         stock_watcher.start()
     await interaction.response.send_message("✅ Stock updates activated in this channel!", ephemeral=False)
 
 @tree.command(name="stop", description="Stop stock updates")
 async def stop(interaction: discord.Interaction):
-    global stock_channel_id
-    stock_channel_id = None
-    if stock_watcher.is_running():
+    guild_id = interaction.guild.id
+    stock_channels.pop(guild_id, None)
+    stock_messages.pop(guild_id, None)
+    if not stock_channels and stock_watcher.is_running():
         stock_watcher.stop()
     await interaction.response.send_message("🛑 Stock updates have been stopped.", ephemeral=True)
 
@@ -71,6 +73,63 @@ async def stop(interaction: discord.Interaction):
 async def invite(interaction: discord.Interaction):
     link = f"https://discord.com/oauth2/authorize?client_id={bot.user.id}&scope=bot+applications.commands&permissions=534723950656"
     await interaction.response.send_message(f"🤖 [Click here to invite this bot to your server]({link})", ephemeral=True)
+
+# ------------------ ToS ------------------
+
+async def send_tos(interaction: discord.Interaction):
+    tos_text = (
+        "**📄 Terms of Service**\n"
+        "- This bot uses a shared Torn API key to fetch public stock data.\n"
+        "- No personal Torn API keys are collected.\n"
+        "- You are responsible for how this bot is used on your server.\n"
+        "- The bot is not affiliated with Torn.com."
+    )
+    await interaction.response.send_message(tos_text, ephemeral=True, view=ToSView(interaction.user.id))
+
+# ------------------ Stock Tracker ------------------
+
+@tasks.loop(seconds=30)
+async def stock_watcher():
+    global last_prices
+    url = f"https://api.torn.com/torn/?selections=stocks&key={TORN_API_KEY}"
+    try:
+        response = requests.get(url).json()
+
+        for guild_id, channel_id in stock_channels.items():
+            channel = bot.get_channel(channel_id)
+            if not channel:
+                continue
+
+            messages = stock_messages.setdefault(guild_id, {})
+
+            for stock_id, stock in response.get("stocks", {}).items():
+                name = stock.get("name")
+                price = stock.get("current_price")
+                if not name or price is None:
+                    continue
+
+                prev = last_prices.get(stock_id)
+                content = f"**{name}**: ${price:,}"
+                if prev is not None and abs(price - prev) >= 0.0001:
+                    emoji = "📈" if price > prev else "📉"
+                    change = price - prev
+                    content += f" ({emoji} {change:+.4f})"
+
+                last_prices[stock_id] = price
+
+                if stock_id in messages:
+                    try:
+                        msg = await channel.fetch_message(messages[stock_id])
+                        await msg.edit(content=content)
+                    except discord.NotFound:
+                        msg = await channel.send(content)
+                        messages[stock_id] = msg.id
+                else:
+                    msg = await channel.send(content)
+                    messages[stock_id] = msg.id
+
+    except Exception as e:
+        print(f"❌ Stock fetch failed: {e}")
 
 @tree.command(name="travel", description="Find travel-based profit opportunities")
 async def travel(interaction: discord.Interaction):
@@ -83,7 +142,7 @@ async def travel(interaction: discord.Interaction):
         response = requests.get(url).json()
 
         if "error" in response:
-            await interaction.response.send_message("❌ Torn account of the bot is not LVL 15 yet.", ephemeral=True)
+            await interaction.response.send_message("❌ Failed to fetch data from Torn API.", ephemeral=True)
             return
 
         travel_items = response.get("travel", {}).get("items", {})
@@ -115,70 +174,13 @@ async def travel(interaction: discord.Interaction):
     except Exception as e:
         await interaction.response.send_message(f"⚠️ Error checking travel items: {e}", ephemeral=True)
 
-# ------------------ ToS ------------------
-
-async def send_tos(interaction: discord.Interaction):
-    tos_text = (
-        "**📄 Terms of Service**\n"
-        "- This bot uses a shared Torn API key to fetch public stock data.\n"
-        "- No personal Torn API keys are collected.\n"
-        "- You are responsible for how this bot is used on your server.\n"
-        "- The bot is not affiliated with Torn.com."
-    )
-    await interaction.response.send_message(tos_text, ephemeral=True, view=ToSView(interaction.user.id))
-
-# ------------------ Stock Tracker ------------------
-
-@tasks.loop(seconds=30)
-async def stock_watcher():
-    global last_prices, stock_messages
-    if not stock_channel_id:
-        return
-
-    url = f"https://api.torn.com/torn/?selections=stocks&key={TORN_API_KEY}"
-    try:
-        response = requests.get(url).json()
-        channel = bot.get_channel(stock_channel_id)
-        if not channel:
-            return
-
-        for stock_id, stock in response.get("stocks", {}).items():
-            name = stock.get("name")
-            price = stock.get("current_price")
-            if not name or price is None:
-                continue
-
-            prev = last_prices.get(stock_id)
-            content = f"**{name}**: ${price:,}"
-            if prev is not None and abs(price - prev) >= 0.0001:
-                emoji = "📈" if price > prev else "📉"
-                change = price - prev
-                content += f" ({emoji} {change:+.4f})"
-
-            last_prices[stock_id] = price
-
-            if stock_id in stock_messages:
-                try:
-                    msg = await channel.fetch_message(stock_messages[stock_id])
-                    await msg.edit(content=content)
-                except discord.NotFound:
-                    msg = await channel.send(content)
-                    stock_messages[stock_id] = msg.id
-            else:
-                msg = await channel.send(content)
-                stock_messages[stock_id] = msg.id
-
-    except Exception as e:
-        print(f"❌ Stock fetch failed: {e}")
-
 # ------------------ Events ------------------
 
 @bot.event
 async def on_ready():
     await bot.wait_until_ready()
-    #GUILD_ID = 1352710920660582471  # IT HELPS INSTANTLY UPDATE COMMAND ONLY IN YOUR SERVER
-    await tree.sync() #guild=discord.Object(id=GUILD_ID)     #PUT THIS INSIDE BRACKETS IF YOU USE GUILD_ID
-    print(f"✅ Synced commands to guild {GUILD_ID}")
+    await tree.sync()
+    print(f"✅ Synced global commands")
 
 # ------------------ Keep Alive Server ------------------
 
