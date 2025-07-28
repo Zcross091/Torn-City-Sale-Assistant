@@ -1,10 +1,16 @@
-import os import discord import requests from discord.ext import commands, tasks from discord import app_commands, ui import threading import http.server import socketserver import asyncio
+import os import discord
+ import requests from discord.ext 
+import commands, tasks from discord 
+import app_commands, ui 
+import threading 
+import http.server 
+import socketserver import asyncio
 
 TOKEN = os.environ.get("DISCORD_BOT_TOKEN") TORN_API_KEY = "etqdem2Fp1VlhfGB"
 
 intents = discord.Intents.default() intents.message_content = True bot = commands.Bot(command_prefix="!", intents=intents) tree = bot.tree
 
-accepted_users = set() last_prices_global = {}  # stock_id -> price (shared across all guilds) stock_channels = {}  # guild_id -> channel_id stock_messages = {}  # guild_id -> {stock_id: message_id}
+accepted_users = set() last_prices = {}  # stock_id -> price stock_channels = {}  # guild_id -> channel_id stock_messages = {}  # guild_id -> {stock_id: message_id}
 
 ------------------ UI ------------------
 
@@ -43,6 +49,7 @@ if interaction.channel.name != "stock-exchange":
 
 stock_channels[guild_id] = interaction.channel.id
 stock_messages.setdefault(guild_id, {})
+
 await interaction.response.send_message("✅ Stock updates activated in this channel!", ephemeral=False)
 
 @tree.command(name="stop", description="Stop stock updates") async def stop(interaction: discord.Interaction): guild_id = interaction.guild.id stock_channels.pop(guild_id, None) stock_messages.pop(guild_id, None) await interaction.response.send_message("🛑 Stock updates have been stopped.", ephemeral=True)
@@ -55,29 +62,31 @@ async def send_tos(interaction: discord.Interaction): tos_text = ( "📄 Terms o
 
 ------------------ Stock Tracker ------------------
 
-@tasks.loop(seconds=30) async def stock_update_loop(): global last_prices_global url = f"https://api.torn.com/torn/?selections=stocks&key={TORN_API_KEY}" try: response = requests.get(url).json() all_stocks = response.get("stocks", {})
+@tasks.loop(seconds=30) async def global_stock_watcher(): url = f"https://api.torn.com/torn/?selections=stocks&key={TORN_API_KEY}" try: response = requests.get(url).json() if "stocks" not in response: print("❌ API error:", response) return
 
-for guild_id, channel_id in stock_channels.items():
+stock_data = response["stocks"]
+
+    for guild_id, channel_id in stock_channels.items():
         channel = bot.get_channel(channel_id)
         if not channel:
             continue
 
         messages = stock_messages.setdefault(guild_id, {})
 
-        for stock_id, stock in all_stocks.items():
+        for stock_id, stock in stock_data.items():
             name = stock.get("name")
             price = stock.get("current_price")
             if not name or price is None:
                 continue
 
-            prev = last_prices_global.get(stock_id)
+            prev = last_prices.get(stock_id)
             content = f"**{name}**: ${price:,}"
             if prev is not None and abs(price - prev) >= 0.0001:
                 emoji = "📈" if price > prev else "📉"
                 change = price - prev
                 content += f" ({emoji} {change:+.4f})"
 
-            last_prices_global[stock_id] = price
+            last_prices[stock_id] = price
 
             if stock_id in messages:
                 try:
@@ -92,8 +101,6 @@ for guild_id, channel_id in stock_channels.items():
 
 except Exception as e:
     print(f"❌ Stock fetch failed: {e}")
-
------------------- Travel Command ------------------
 
 @tree.command(name="travel", description="Find travel-based profit opportunities") async def travel(interaction: discord.Interaction): if interaction.user.id not in accepted_users: await send_tos(interaction) return
 
@@ -136,7 +143,7 @@ except Exception as e:
 
 ------------------ Events ------------------
 
-@bot.event async def on_ready(): await bot.wait_until_ready() await tree.sync() print(f"✅ Synced global commands") if not stock_update_loop.is_running(): stock_update_loop.start()
+@bot.event async def on_ready(): await bot.wait_until_ready() await tree.sync() print(f"✅ Synced global commands") if not global_stock_watcher.is_running(): global_stock_watcher.start()
 
 ------------------ Keep Alive Server ------------------
 
