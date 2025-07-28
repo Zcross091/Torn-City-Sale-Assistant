@@ -118,6 +118,8 @@ async def stock_watcher():
     except Exception as e:
         print(f"❌ Stock fetch failed: {e}")
 
+# ------------------ Travel Profit ------------------
+
 @tree.command(name="travel", description="Find travel-based profit opportunities")
 async def travel(interaction: discord.Interaction):
     if interaction.user.id not in accepted_users:
@@ -125,25 +127,25 @@ async def travel(interaction: discord.Interaction):
         return
 
     try:
-        url = f"https://api.torn.com/torn/?selections=travel&key={TORN_API_KEY}"
+        url = f"https://api.torn.com/torn/?selections=items&key={TORN_API_KEY}"
         response = requests.get(url).json()
 
         if "error" in response:
             await interaction.response.send_message("❌ Failed to fetch data from Torn API.", ephemeral=True)
             return
 
-        travel_items = response.get("travel", {}).get("items", {})
+        items = response.get("items", {})
         profitable = []
 
-        for item_id, item in travel_items.items():
+        for item_id, item in items.items():
             name = item.get("name")
             cost = item.get("cost")
             market_value = item.get("market_value")
-            country = item.get("location")
+            location = item.get("location")
 
             if name and cost and market_value and market_value > cost:
                 profit = market_value - cost
-                profitable.append((profit, name, cost, market_value, country))
+                profitable.append((profit, name, cost, market_value, location))
 
         if not profitable:
             await interaction.response.send_message("📉 No profitable travel items found right now.", ephemeral=True)
@@ -161,16 +163,14 @@ async def travel(interaction: discord.Interaction):
     except Exception as e:
         await interaction.response.send_message(f"⚠️ Error checking travel items: {e}", ephemeral=True)
 
-
 # ------------------ Events ------------------
 
 @bot.event
 async def on_ready():
     await bot.wait_until_ready()
-    GUILD_ID = 1352710920660582471  # ← Replace with your server's ID
+    GUILD_ID = 1352710920660582471  # Update this if your server ID changes
     await tree.sync(guild=discord.Object(id=GUILD_ID))
     print(f"✅ Synced commands to guild {GUILD_ID}")
-
 
 # ------------------ Keep Alive Server ------------------
 
