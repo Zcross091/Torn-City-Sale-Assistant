@@ -123,7 +123,7 @@ async def stock_watcher():
 @bot.event
 async def on_ready():
     await bot.wait_until_ready()
-    await tree.sync(force=True)
+    await tree.sync()
     print(f"✅ Bot is online as {bot.user}")
 
 # ------------------ Keep Alive Server ------------------
