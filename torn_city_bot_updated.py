@@ -7,7 +7,6 @@ import threading
 import http.server
 import socketserver
 import asyncio
-import time
 
 TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
 TORN_API_KEY = "etqdem2Fp1VlhfGB"
@@ -18,7 +17,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
 accepted_users = set()
-last_prices = {}  # guild_id -> {stock_id: price}
+last_prices = {}  # stock_id -> {guild_id: price}
 stock_channels = {}  # guild_id -> channel_id
 stock_tasks = {}  # guild_id -> asyncio.Task
 stock_messages = {}  # guild_id -> {stock_id: message_id}
@@ -33,12 +32,8 @@ class ToSView(ui.View):
     @ui.button(label="I AGREE", style=discord.ButtonStyle.success)
     async def agree(self, interaction: discord.Interaction, button: discord.ui.Button):
         accepted_users.add(self.user_id)
-        await interaction.response.send_message(
-            "✅ Terms accepted!",
-            ephemeral=True
-        )
+        await interaction.response.send_message("✅ Terms accepted!", ephemeral=True)
 
-        # Setup Wizard
         intro = (
             "👋 **Thanks for using Torn Assistant!**\n"
             "This bot has two key features:\n"
@@ -73,8 +68,8 @@ async def stock(interaction: discord.Interaction):
     stock_channels[guild_id] = interaction.channel.id
     stock_messages.setdefault(guild_id, {})
 
-    if guild_id not in stock_tasks:
-        stock_tasks[guild_id] = asyncio.create_task(stock_watcher(guild_id))
+    if not stock_broadcast_task.is_running():
+        stock_broadcast_task.start()
 
     await interaction.response.send_message("✅ Stock updates activated in this channel!", ephemeral=False)
 
@@ -84,9 +79,8 @@ async def stop(interaction: discord.Interaction):
     stock_channels.pop(guild_id, None)
     stock_messages.pop(guild_id, None)
 
-    task = stock_tasks.pop(guild_id, None)
-    if task:
-        task.cancel()
+    if not stock_channels and stock_broadcast_task.is_running():
+        stock_broadcast_task.stop()
 
     await interaction.response.send_message("🛑 Stock updates have been stopped.", ephemeral=True)
 
@@ -107,21 +101,20 @@ async def send_tos(interaction: discord.Interaction):
     )
     await interaction.response.send_message(tos_text, ephemeral=True, view=ToSView(interaction.user.id))
 
-# ------------------ Stock Tracker ------------------
+# ------------------ Stock Tracker (Single API Call) ------------------
 
-async def stock_watcher(guild_id):
+@tasks.loop(seconds=30)
+async def stock_broadcast_task():
     try:
-        while guild_id in stock_channels:
-            url = f"https://api.torn.com/torn/?selections=stocks&key={TORN_API_KEY}"
-            response = requests.get(url).json()
+        url = f"https://api.torn.com/torn/?selections=stocks&key={TORN_API_KEY}"
+        response = requests.get(url).json()
 
-            channel = bot.get_channel(stock_channels[guild_id])
+        for guild_id, channel_id in stock_channels.items():
+            channel = bot.get_channel(channel_id)
             if not channel:
-                await asyncio.sleep(30)
                 continue
 
             messages = stock_messages.setdefault(guild_id, {})
-            prices = last_prices.setdefault(guild_id, {})  # per-server stock prices
 
             for stock_id, stock in response.get("stocks", {}).items():
                 name = stock.get("name")
@@ -129,14 +122,20 @@ async def stock_watcher(guild_id):
                 if not name or price is None:
                     continue
 
-                prev = prices.get(stock_id)
+                # Compare last price for this guild
+                prev = last_prices.get(stock_id, {}).get(guild_id)
                 content = f"**{name}**: ${price:,}"
-                if prev is not None and abs(price - prev) >= 0.0001:
+
+                if prev is None:
+                    emoji = "📈"
+                    change = 0.0
+                    content += f" ({emoji} {change:+.4f})"
+                elif abs(price - prev) >= 0.0001:
                     emoji = "📈" if price > prev else "📉"
                     change = price - prev
                     content += f" ({emoji} {change:+.4f})"
 
-                prices[stock_id] = price
+                last_prices.setdefault(stock_id, {})[guild_id] = price
 
                 if stock_id in messages:
                     try:
@@ -149,13 +148,8 @@ async def stock_watcher(guild_id):
                     msg = await channel.send(content)
                     messages[stock_id] = msg.id
 
-            # Align sleep to every 30 seconds interval
-            await asyncio.sleep(max(0, 30 - (time.time() % 30)))
-
-    except asyncio.CancelledError:
-        print(f"❌ Cancelled stock watcher for guild {guild_id}")
     except Exception as e:
-        print(f"❌ Stock fetch failed for guild {guild_id}: {e}")
+        print(f"❌ Stock fetch failed: {e}")
 
 @tree.command(name="travel", description="Find travel-based profit opportunities")
 async def travel(interaction: discord.Interaction):
@@ -223,3 +217,18 @@ threading.Thread(target=keep_alive).start()
 
 if __name__ == "__main__":
     bot.run(TOKEN)
+
+
+Done! ✅
+
+Your bot now:
+
+Makes a single Torn API call every 30 seconds.
+
+Updates all active guilds simultaneously using the latest data.
+
+Displays 📈 or 📉 indicators for each stock based on the previous value per guild, ensuring clarity across servers.
+
+
+Let me know if you want to add cooldowns, filters (e.g. only top movers), or memory-saving features next.
+
