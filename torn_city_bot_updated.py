@@ -6,6 +6,7 @@ from discord import app_commands, ui
 import threading
 import http.server
 import socketserver
+import asyncio
 
 TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
 TORN_API_KEY = "etqdem2Fp1VlhfGB"
@@ -16,8 +17,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
 accepted_users = set()
-last_prices = {}
+last_prices = {}  # stock_id -> price
 stock_channels = {}  # guild_id -> channel_id
+stock_tasks = {}  # guild_id -> asyncio.Task
 stock_messages = {}  # guild_id -> {stock_id: message_id}
 
 # ------------------ UI ------------------
@@ -30,12 +32,8 @@ class ToSView(ui.View):
     @ui.button(label="I AGREE", style=discord.ButtonStyle.success)
     async def agree(self, interaction: discord.Interaction, button: discord.ui.Button):
         accepted_users.add(self.user_id)
-        await interaction.response.send_message(
-            "✅ Terms accepted!",
-            ephemeral=True
-        )
+        await interaction.response.send_message("✅ Terms accepted!", ephemeral=True)
 
-        # Setup Wizard
         intro = (
             "👋 **Thanks for using Torn Assistant!**\n"
             "This bot has two key features:\n"
@@ -69,8 +67,10 @@ async def stock(interaction: discord.Interaction):
 
     stock_channels[guild_id] = interaction.channel.id
     stock_messages.setdefault(guild_id, {})
-    if not stock_watcher.is_running():
-        stock_watcher.start()
+
+    if guild_id not in stock_tasks:
+        stock_tasks[guild_id] = asyncio.create_task(stock_watcher(guild_id))
+
     await interaction.response.send_message("✅ Stock updates activated in this channel!", ephemeral=False)
 
 @tree.command(name="stop", description="Stop stock updates")
@@ -78,8 +78,11 @@ async def stop(interaction: discord.Interaction):
     guild_id = interaction.guild.id
     stock_channels.pop(guild_id, None)
     stock_messages.pop(guild_id, None)
-    if not stock_channels and stock_watcher.is_running():
-        stock_watcher.stop()
+
+    task = stock_tasks.pop(guild_id, None)
+    if task:
+        task.cancel()
+
     await interaction.response.send_message("🛑 Stock updates have been stopped.", ephemeral=True)
 
 @tree.command(name="invite", description="Invite the bot to your server")
@@ -101,16 +104,15 @@ async def send_tos(interaction: discord.Interaction):
 
 # ------------------ Stock Tracker ------------------
 
-@tasks.loop(seconds=30)
-async def stock_watcher():
-    global last_prices
-    url = f"https://api.torn.com/torn/?selections=stocks&key={TORN_API_KEY}"
+async def stock_watcher(guild_id):
     try:
-        response = requests.get(url).json()
+        while guild_id in stock_channels:
+            url = f"https://api.torn.com/torn/?selections=stocks&key={TORN_API_KEY}"
+            response = requests.get(url).json()
 
-        for guild_id, channel_id in stock_channels.items():
-            channel = bot.get_channel(channel_id)
+            channel = bot.get_channel(stock_channels[guild_id])
             if not channel:
+                await asyncio.sleep(30)
                 continue
 
             messages = stock_messages.setdefault(guild_id, {})
@@ -141,8 +143,12 @@ async def stock_watcher():
                     msg = await channel.send(content)
                     messages[stock_id] = msg.id
 
+            await asyncio.sleep(30)
+
+    except asyncio.CancelledError:
+        print(f"❌ Cancelled stock watcher for guild {guild_id}")
     except Exception as e:
-        print(f"❌ Stock fetch failed: {e}")
+        print(f"❌ Stock fetch failed for guild {guild_id}: {e}")
 
 @tree.command(name="travel", description="Find travel-based profit opportunities")
 async def travel(interaction: discord.Interaction):
