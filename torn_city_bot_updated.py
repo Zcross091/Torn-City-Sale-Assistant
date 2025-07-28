@@ -167,8 +167,10 @@ async def travel(interaction: discord.Interaction):
 @bot.event
 async def on_ready():
     await bot.wait_until_ready()
-    await tree.sync()
-    print(f"✅ Bot is online as {bot.user}")
+    GUILD_ID = 1352710920660582471  # ← Replace with your server's ID
+    await tree.sync(guild=discord.Object(id=GUILD_ID))
+    print(f"✅ Synced commands to guild {GUILD_ID}")
+
 
 # ------------------ Keep Alive Server ------------------
 
