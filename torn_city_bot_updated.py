@@ -176,8 +176,8 @@ async def stock_watcher():
 @bot.event
 async def on_ready():
     await bot.wait_until_ready()
-    GUILD_ID = 1352710920660582471  # Replace with your actual guild/server ID
-    await tree.sync(guild=discord.Object(id=GUILD_ID))
+    #GUILD_ID = 1352710920660582471  # IT HELPS INSTANTLY UPDATE COMMAND ONLY IN YOUR SERVER
+    await tree.sync() #guild=discord.Object(id=GUILD_ID)     #PUT THIS INSIDE BRACKETS IF YOU USE GUILD_ID
     print(f"✅ Synced commands to guild {GUILD_ID}")
 
 # ------------------ Keep Alive Server ------------------
