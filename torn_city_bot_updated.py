@@ -31,9 +31,22 @@ class ToSView(ui.View):
     async def agree(self, interaction: discord.Interaction, button: discord.ui.Button):
         accepted_users.add(self.user_id)
         await interaction.response.send_message(
-            "✅ Terms accepted!\n\n📌 **Instructions:**\n1. Create a channel named `#stock-exchange`.\n2. Go there and use `/stock` to start updates.\n3. Use `/stop` to stop them.",
+            "✅ Terms accepted!",
             ephemeral=True
         )
+
+        # Setup Wizard
+        intro = (
+            "👋 **Thanks for using Torn Assistant!**\n"
+            "This bot has two key features:\n"
+            "1. **Stock Alerts** – Track every Torn stock and get real-time price updates in a dedicated channel.\n"
+            "2. **Travel Profits** – Use `/travel` to view items you can buy overseas and sell for profit in Torn City.\n\n"
+            "🔧 To start:\n"
+            "- Create a text channel named `#stock-exchange`\n"
+            "- Go there and use `/stock` to activate tracking.\n"
+            "- You can stop it anytime using `/stop`."
+        )
+        await interaction.followup.send(intro, ephemeral=True)
 
 # ------------------ Commands ------------------
 
