@@ -12,6 +12,7 @@ from discord import app_commands, ui
 TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
 TORN_API_KEY = "etqdem2Fp1VlhfGB"
 DATA_FILE = "bot_data.json"
+ALLOWED_GUILD_ID = 1352710920660582471
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -61,8 +62,8 @@ class ToSView(ui.View):
             "1. **Stock Alerts** – Track every Torn stock and get real-time price updates in a dedicated channel.\n"
             "2. **Travel Profits** – Use `/travel` to view items you can buy overseas and sell for profit in Torn City.\n\n"
             "🔧 To start:\n"
-            "- Create a text channel named `#stock-exchange`\n"
-            "- Go there and use `/stock` to activate tracking.\n"
+            "- Create a text channel (like `#stock-exchange`)\n"
+            "- Use `/stock` in that channel to activate tracking.\n"
             "- You can stop it anytime using `/stop`."
         )
         await interaction.followup.send(intro, ephemeral=True)
@@ -79,25 +80,39 @@ async def send_tos(interaction: discord.Interaction):
     )
     await interaction.response.send_message(tos_text, ephemeral=True, view=ToSView(interaction.user.id))
 
+# ------------------ Permissions Check ------------------
+
+async def ensure_channel_permissions(interaction: discord.Interaction):
+    permissions = interaction.channel.permissions_for(interaction.guild.me)
+    if not permissions.send_messages or not permissions.read_messages:
+        await interaction.response.send_message("❌ I don't have permission to send messages in this channel.", ephemeral=True)
+        return False
+    return True
+
+def is_allowed_server(interaction: discord.Interaction) -> bool:
+    return interaction.guild and interaction.guild.id == ALLOWED_GUILD_ID
+
 # ------------------ Commands ------------------
 
 @tree.command(name="start", description="Start using the bot")
 async def start(interaction: discord.Interaction):
+    if not is_allowed_server(interaction):
+        await interaction.response.send_message("❌ This bot only works in the authorized server.", ephemeral=True)
+        return
     await send_tos(interaction)
 
 @tree.command(name="stock", description="Start live stock updates in this channel")
 async def stock(interaction: discord.Interaction):
-    guild_id = interaction.guild.id
-    user_id = interaction.user.id
-
-    if user_id not in accepted_users:
+    if not is_allowed_server(interaction):
+        await interaction.response.send_message("❌ This bot only works in the authorized server.", ephemeral=True)
+        return
+    if not await ensure_channel_permissions(interaction):
+        return
+    if interaction.user.id not in accepted_users:
         await send_tos(interaction)
         return
 
-    if interaction.channel.name != "stock-exchange":
-        await interaction.response.send_message("❗ Please use this command in the `#stock-exchange` channel.", ephemeral=True)
-        return
-
+    guild_id = interaction.guild.id
     stock_channels[guild_id] = interaction.channel.id
     stock_messages.setdefault(guild_id, {})
     save_data()
@@ -105,6 +120,9 @@ async def stock(interaction: discord.Interaction):
 
 @tree.command(name="stop", description="Stop stock updates")
 async def stop(interaction: discord.Interaction):
+    if not is_allowed_server(interaction):
+        await interaction.response.send_message("❌ This bot only works in the authorized server.", ephemeral=True)
+        return
     guild_id = interaction.guild.id
     stock_channels.pop(guild_id, None)
     stock_messages.pop(guild_id, None)
@@ -113,11 +131,17 @@ async def stop(interaction: discord.Interaction):
 
 @tree.command(name="invite", description="Invite the bot to your server")
 async def invite(interaction: discord.Interaction):
+    if not is_allowed_server(interaction):
+        await interaction.response.send_message("❌ This bot only works in the authorized server.", ephemeral=True)
+        return
     link = f"https://discord.com/oauth2/authorize?client_id={bot.user.id}&scope=bot+applications.commands&permissions=534723950656"
     await interaction.response.send_message(f"🤖 [Click here to invite this bot to your server]({link})", ephemeral=True)
 
 @tree.command(name="status", description="Check if stock tracking is active")
 async def status(interaction: discord.Interaction):
+    if not is_allowed_server(interaction):
+        await interaction.response.send_message("❌ This bot only works in the authorized server.", ephemeral=True)
+        return
     guild_id = interaction.guild.id
     if guild_id in stock_channels:
         await interaction.response.send_message("✅ Stock tracking is active in this server.", ephemeral=True)
@@ -126,6 +150,11 @@ async def status(interaction: discord.Interaction):
 
 @tree.command(name="travel", description="Find travel-based profit opportunities")
 async def travel(interaction: discord.Interaction):
+    if not is_allowed_server(interaction):
+        await interaction.response.send_message("❌ This bot only works in the authorized server.", ephemeral=True)
+        return
+    if not await ensure_channel_permissions(interaction):
+        return
     if interaction.user.id not in accepted_users:
         await send_tos(interaction)
         return
