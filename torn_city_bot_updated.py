@@ -1,15 +1,17 @@
 import os
-import discord
+import json
 import requests
-from discord.ext import commands, tasks
-from discord import app_commands, ui
+import discord
+import asyncio
 import threading
 import http.server
 import socketserver
-import asyncio
+from discord.ext import commands, tasks
+from discord import app_commands, ui
 
 TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
 TORN_API_KEY = "etqdem2Fp1VlhfGB"
+DATA_FILE = "bot_data.json"
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -20,6 +22,26 @@ accepted_users = set()
 last_prices = {}  # stock_id -> price
 stock_channels = {}  # guild_id -> channel_id
 stock_messages = {}  # guild_id -> {stock_id: message_id}
+
+# ------------------ Persistence ------------------
+
+def save_data():
+    with open(DATA_FILE, "w") as f:
+        json.dump({
+            "channels": stock_channels,
+            "messages": stock_messages
+        }, f)
+
+def load_data():
+    global stock_channels, stock_messages
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            data = json.load(f)
+            stock_channels.update({int(k): v for k, v in data.get("channels", {}).items()})
+            stock_messages.update({
+                int(g): {int(k): v for k, v in m.items()}
+                for g, m in data.get("messages", {}).items()
+            })
 
 # ------------------ UI ------------------
 
@@ -45,6 +67,18 @@ class ToSView(ui.View):
         )
         await interaction.followup.send(intro, ephemeral=True)
 
+# ------------------ ToS ------------------
+
+async def send_tos(interaction: discord.Interaction):
+    tos_text = (
+        "**📄 Terms of Service**\n"
+        "- This bot uses a shared Torn API key to fetch public stock data.\n"
+        "- No personal Torn API keys are collected.\n"
+        "- You are responsible for how this bot is used on your server.\n"
+        "- The bot is not affiliated with Torn.com."
+    )
+    await interaction.response.send_message(tos_text, ephemeral=True, view=ToSView(interaction.user.id))
+
 # ------------------ Commands ------------------
 
 @tree.command(name="start", description="Start using the bot")
@@ -66,14 +100,15 @@ async def stock(interaction: discord.Interaction):
 
     stock_channels[guild_id] = interaction.channel.id
     stock_messages.setdefault(guild_id, {})
-
-    await interaction.response.send_message("✅ Stock updates activated in this channel!", ephemeral=False)
+    save_data()
+    await interaction.response.send_message("✅ Stock updates activated in this channel!", ephemeral=True)
 
 @tree.command(name="stop", description="Stop stock updates")
 async def stop(interaction: discord.Interaction):
     guild_id = interaction.guild.id
     stock_channels.pop(guild_id, None)
     stock_messages.pop(guild_id, None)
+    save_data()
     await interaction.response.send_message("🛑 Stock updates have been stopped.", ephemeral=True)
 
 @tree.command(name="invite", description="Invite the bot to your server")
@@ -81,66 +116,13 @@ async def invite(interaction: discord.Interaction):
     link = f"https://discord.com/oauth2/authorize?client_id={bot.user.id}&scope=bot+applications.commands&permissions=534723950656"
     await interaction.response.send_message(f"🤖 [Click here to invite this bot to your server]({link})", ephemeral=True)
 
-# ------------------ ToS ------------------
-
-async def send_tos(interaction: discord.Interaction):
-    tos_text = (
-        "**📄 Terms of Service**\n"
-        "- This bot uses a shared Torn API key to fetch public stock data.\n"
-        "- No personal Torn API keys are collected.\n"
-        "- You are responsible for how this bot is used on your server.\n"
-        "- The bot is not affiliated with Torn.com."
-    )
-    await interaction.response.send_message(tos_text, ephemeral=True, view=ToSView(interaction.user.id))
-
-# ------------------ Stock Tracker ------------------
-
-@tasks.loop(seconds=30)
-async def global_stock_watcher():
-    url = f"https://api.torn.com/torn/?selections=stocks&key={TORN_API_KEY}"
-    try:
-        response = requests.get(url).json()
-        if "stocks" not in response:
-            print("❌ API error:", response)
-            return
-
-        stock_data = response["stocks"]
-
-        for guild_id, channel_id in stock_channels.items():
-            channel = bot.get_channel(channel_id)
-            if not channel:
-                continue
-
-            messages = stock_messages.setdefault(guild_id, {})
-
-            for stock_id, stock in stock_data.items():
-                name = stock.get("name")
-                price = stock.get("current_price")
-                if not name or price is None:
-                    continue
-
-                prev = last_prices.get(stock_id)
-                content = f"**{name}**: ${price:,}"
-                if prev is not None and abs(price - prev) >= 0.0001:
-                    emoji = "📈" if price > prev else "📉"
-                    change = price - prev
-                    content += f" ({emoji} {change:+.4f})"
-
-                last_prices[stock_id] = price
-
-                if stock_id in messages:
-                    try:
-                        msg = await channel.fetch_message(messages[stock_id])
-                        await msg.edit(content=content)
-                    except discord.NotFound:
-                        msg = await channel.send(content)
-                        messages[stock_id] = msg.id
-                else:
-                    msg = await channel.send(content)
-                    messages[stock_id] = msg.id
-
-    except Exception as e:
-        print(f"❌ Stock fetch failed: {e}")
+@tree.command(name="status", description="Check if stock tracking is active")
+async def status(interaction: discord.Interaction):
+    guild_id = interaction.guild.id
+    if guild_id in stock_channels:
+        await interaction.response.send_message("✅ Stock tracking is active in this server.", ephemeral=True)
+    else:
+        await interaction.response.send_message("⚠️ Stock tracking is not active. Use `/stock` to enable it.", ephemeral=True)
 
 @tree.command(name="travel", description="Find travel-based profit opportunities")
 async def travel(interaction: discord.Interaction):
@@ -185,17 +167,65 @@ async def travel(interaction: discord.Interaction):
     except Exception as e:
         await interaction.response.send_message(f"⚠️ Error checking travel items: {e}", ephemeral=True)
 
+# ------------------ Stock Tracker ------------------
+
+@tasks.loop(seconds=30)
+async def global_stock_watcher():
+    url = f"https://api.torn.com/torn/?selections=stocks&key={TORN_API_KEY}"
+    try:
+        response = requests.get(url).json()
+        if "stocks" not in response:
+            print("❌ API error:", response)
+            return
+
+        for guild_id, channel_id in stock_channels.items():
+            channel = bot.get_channel(channel_id)
+            if not channel:
+                continue
+
+            messages = stock_messages.setdefault(guild_id, {})
+            for stock_id, stock in response["stocks"].items():
+                name = stock.get("name")
+                price = stock.get("current_price")
+                if not name or price is None:
+                    continue
+
+                prev = last_prices.get(stock_id)
+                content = f"**{name}**: ${price:,}"
+                if prev is not None and abs(price - prev) >= 0.0001:
+                    emoji = "📈" if price > prev else "📉"
+                    change = price - prev
+                    content += f" ({emoji} {change:+.4f})"
+
+                last_prices[stock_id] = price
+
+                try:
+                    if stock_id in messages:
+                        msg = await channel.fetch_message(messages[stock_id])
+                        await msg.edit(content=content)
+                    else:
+                        msg = await channel.send(content)
+                        messages[stock_id] = msg.id
+                except discord.HTTPException:
+                    pass
+
+                await asyncio.sleep(0.5)  # Avoid rate limits
+
+    except Exception as e:
+        print(f"❌ Stock fetch failed: {e}")
+
 # ------------------ Events ------------------
 
 @bot.event
 async def on_ready():
     await bot.wait_until_ready()
     await tree.sync()
-    print(f"✅ Synced global commands")
+    load_data()
+    print("✅ Synced global commands and loaded saved data")
     if not global_stock_watcher.is_running():
         global_stock_watcher.start()
 
-# ------------------ Keep Alive Server ------------------
+# ------------------ Keep Alive ------------------
 
 def keep_alive():
     port = int(os.environ.get("PORT", 10000))
@@ -206,7 +236,7 @@ def keep_alive():
 
 threading.Thread(target=keep_alive).start()
 
-# ------------------ Run Bot ------------------
+# ------------------ Run ------------------
 
 if __name__ == "__main__":
     bot.run(TOKEN)
